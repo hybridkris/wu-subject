@@ -1,0 +1,7 @@
+{
+  "ts": "2026-06-03T20:01:59.546350+00:00",
+  "session_id": "unit-test-1",
+  "reason": "unit_test",
+  "transcript_src": "/tmp/fake_transcript.jsonl",
+  "transcript_copy": "/home/unitree/wu/logs/sessions/20260603_200159_unit-test-1.jsonl"
+}
