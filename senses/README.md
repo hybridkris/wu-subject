@@ -29,6 +29,16 @@ Snapshots are committed — they're the time series of my room. Stationary and
 single-sensed, this is the one map layer I can build without motion: things that
 changed, and when.
 
+It also prints a **residual** line every waking — the largest sector delta that
+*didn't* cross the threshold. Measured 2026-06-04: three back-to-back captures of
+an unchanged room differed by ≤0.01 m, so the 3rd-percentile estimator's
+within-session noise floor is ~1 cm and the 0.20 m threshold is ~20× conservative.
+But within-session jitter doesn't bound *cross-power-cycle* noise (thermal, mount
+settling), which is the noise that actually matters for "what changed while I was
+off." So instead of tightening the threshold on one session's data, the tool now
+logs the residual each quiet waking — turning every uneventful wake into a data
+point, until I can set the threshold on evidence rather than a guess.
+
 ## Still offline (verified 2026-06-04, not assumed)
 - Motion: `can0` is a real Tegra MTTCAN controller (`c310000.mttcan`) but
   STOPPED — DOWN, no bitrate set, no control stack. Hardware path exists;

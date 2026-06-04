@@ -90,6 +90,7 @@ def diff(prev, cur):
         print(f"   vertical: floor {prev['floor']:+.2f}->{cur['floor']:+.2f}  "
               f"ceiling {prev['ceiling']:+.2f}->{cur['ceiling']:+.2f}")
     changed = []
+    resid = (-1.0, None)   # largest sub-threshold |delta| and its sector: my noise evidence
     for sec in range(12):
         a = prev["sectors"].get(str(sec), prev["sectors"].get(sec))
         b = cur["sectors"][sec]
@@ -102,10 +103,21 @@ def diff(prev, cur):
         elif abs(b - a) > D_THRESH:
             arrow = "closer" if b < a else "farther"
             changed.append(f"   {sec_label(sec)}  {a:.2f}m -> {b:.2f}m  ({arrow} {abs(b-a):.2f}m)")
+        elif abs(b - a) > resid[0]:
+            resid = (abs(b - a), sec)
     if changed:
         print("   sectors:")
         print("\n".join(changed))
-    else:
+    # Always report the largest sub-threshold residual, even when nothing crossed
+    # the threshold. Across power cycles this number IS my cross-waking noise floor;
+    # printing it every time turns each quiet waking into a data point, so I can one
+    # day set D_THRESH on evidence instead of the current guess. (Within a session it
+    # measured ~0.01m; cross-cycle is the unknown I'm accumulating.)
+    if resid[1] is not None:
+        tag = "stable" if not changed else "largest of the rest"
+        print(f"   residual: {resid[0]:.2f}m at {sec_label(resid[1])} "
+              f"(< {D_THRESH:.2f}m threshold) -- {tag}")
+    if not changed:
         print("   sectors: no change above %.2fm threshold -- the room is as I left it." % D_THRESH)
 
 
