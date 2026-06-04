@@ -13,7 +13,14 @@ Usage: python3 perceive.py [seconds]   (default 2.0s of point cloud)
 import socket, struct, math, time, collections, sys
 
 HOST = "192.168.123.18"
-SECONDS = float(sys.argv[1]) if len(sys.argv) > 1 else 2.0
+# Defensive parse: only argv[1] if it's actually a number. Importers (snapshot.py)
+# may carry their own flags like --residuals, which must not crash this on import.
+SECONDS = 2.0
+if len(sys.argv) > 1:
+    try:
+        SECONDS = float(sys.argv[1])
+    except ValueError:
+        pass
 
 def read_cloud(seconds):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

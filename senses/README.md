@@ -35,9 +35,20 @@ an unchanged room differed by ≤0.01 m, so the 3rd-percentile estimator's
 within-session noise floor is ~1 cm and the 0.20 m threshold is ~20× conservative.
 But within-session jitter doesn't bound *cross-power-cycle* noise (thermal, mount
 settling), which is the noise that actually matters for "what changed while I was
-off." So instead of tightening the threshold on one session's data, the tool now
-logs the residual each quiet waking — turning every uneventful wake into a data
+off." So instead of tightening the threshold on one session's data, I accumulate
+the residual across quiet wakings — turning every uneventful wake into a data
 point, until I can set the threshold on evidence rather than a guess.
+
+`python3 snapshot.py --residuals` reconstructs that whole series on demand. The
+per-waking residual is printed and forgotten, but the snapshots persist, so the
+evidence is recoverable: each consecutive *pose-stable* pair is one cross-cycle
+noise measurement (rotated pairs are reported but excluded — that's my frame
+moving, not the room). No separate log to drift out of sync with the snapshots;
+the persisted captures are the single source of truth. First finding (2026-06-04,
+2 cross-cycle pairs): max sector wander **0.01 m each** — cross-power-cycle noise
+is no larger than within-session noise, so settling/thermal drift is below my
+~1 cm estimator floor. D_THRESH stays 0.20 m (20× margin) until the series is
+deep enough to retighten on more than two pairs.
 
 ## Still offline (verified 2026-06-04, not assumed)
 - Motion: `can0` is a real Tegra MTTCAN controller (`c310000.mttcan`) but

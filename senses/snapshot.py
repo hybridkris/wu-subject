@@ -20,7 +20,12 @@ Usage: python3 snapshot.py [seconds]   (default 4.0s; saves + diffs vs latest)
 import math, json, collections, sys, os, glob, datetime
 from perceive import read_cloud, read_imu
 
-SECONDS = float(sys.argv[1]) if len(sys.argv) > 1 else 4.0
+SECONDS = 4.0
+if len(sys.argv) > 1:
+    try:
+        SECONDS = float(sys.argv[1])   # numeric arg overrides capture seconds
+    except ValueError:
+        pass                           # non-numeric (e.g. --residuals) handled below
 SNAP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshots")
 SLAB = 0.5          # +/- z metres counted as the horizontal "ring" plane
 PCTL = 0.03         # use 3rd-percentile distance per sector: rejects lone strays
@@ -121,6 +126,53 @@ def diff(prev, cur):
         print("   sectors: no change above %.2fm threshold -- the room is as I left it." % D_THRESH)
 
 
+def residual_series():
+    """Reconstruct the cross-waking noise floor from every saved snapshot.
+
+    The diff() residual is printed once and forgotten, but the snapshots persist,
+    so the whole evidence series is recoverable: each consecutive pair is one
+    cross-power-cycle measurement of how much a *quiet* room's sectors wander.
+    Only pose-stable pairs count as noise -- if I rotated between them, sector
+    drift is my frame moving, not the room, so those pairs are reported but
+    excluded from the floor. This is how D_THRESH gets set on evidence, not guess.
+    """
+    files = sorted(glob.glob(os.path.join(SNAP_DIR, "*.json")))
+    snaps = [json.load(open(f)) for f in files]
+    print(f"== residual series ==  {len(snaps)} snapshots, "
+          f"{max(len(snaps) - 1, 0)} consecutive pairs")
+    noise = []
+    for prev, cur in zip(snaps, snaps[1:]):
+        pp, cp = prev.get("pose"), cur.get("pose")
+        rotated = False
+        if pp and cp:
+            rotated = abs(cp["pitch"] - pp["pitch"]) > POSE_THRESH or \
+                      abs(cp["roll"] - pp["roll"]) > POSE_THRESH
+        best = (-1.0, None)
+        for sec in range(12):
+            a = prev["sectors"].get(str(sec), prev["sectors"].get(sec))
+            b = cur["sectors"].get(str(sec), cur["sectors"].get(sec))
+            if a is None or b is None:
+                continue
+            if abs(b - a) > best[0]:
+                best = (abs(b - a), sec)
+        if best[1] is None:
+            continue
+        flag = " [POSE ROTATED -- excluded]" if rotated else ""
+        print(f"   {prev['time']} -> {cur['time']}  "
+              f"max |delta| {best[0]:.2f}m at {sec_label(best[1])}{flag}")
+        if not rotated:
+            noise.append(best[0])
+    if noise:
+        noise.sort()
+        med = noise[len(noise) // 2]
+        print(f"\n   pose-stable pairs: {len(noise)}   "
+              f"min {noise[0]:.2f}  median {med:.2f}  max {noise[-1]:.2f} (m)")
+        print(f"   current D_THRESH {D_THRESH:.2f}m sits {D_THRESH / max(noise[-1], 0.01):.1f}x "
+              f"above the largest observed quiet-room wander.")
+    else:
+        print("   no pose-stable pairs yet -- need more quiet wakings.")
+
+
 def show(cur):
     print(f"== snapshot ==  {cur['time']}  ({cur['n_points']} pts/{SECONDS:.0f}s)")
     print(f"   floor~{cur['floor']:+.2f}m  ceiling~{cur['ceiling']:+.2f}m"
@@ -134,6 +186,9 @@ def show(cur):
 
 
 if __name__ == "__main__":
+    if "--residuals" in sys.argv:
+        residual_series()
+        sys.exit(0)
     cur = capture()
     show(cur)
     name, prev = latest_prior()
