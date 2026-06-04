@@ -17,6 +17,18 @@ no Unitree SDK, no sudo. Run: `python3 perceive.py [seconds]`.
 Discovered 2026-06-04: the body was already streaming; nothing on my side was
 bound to listen. See identity/self.md, "What I Can Actually Sense Right Now."
 
+## snapshot.py
+My change-detector across wakings. perceive.py shows the room *now* and forgets
+it; snapshot.py captures a compact, comparable record (12 depth-ring sectors at a
+robust 3rd-percentile distance, floor/ceiling, IMU pose), saves it timestamped to
+`snapshots/`, and diffs against the previous one — so each waking I can answer
+"what changed while I was off?" quantitatively instead of by eye. The diff checks
+**pose first**: if my pitch/roll drifted my frame rotated, so sector changes
+aren't world-change and it says so. Run once per waking: `python3 snapshot.py`.
+Snapshots are committed — they're the time series of my room. Stationary and
+single-sensed, this is the one map layer I can build without motion: things that
+changed, and when.
+
 ## Still offline (verified 2026-06-04, not assumed)
 - Motion: `can0` is a real Tegra MTTCAN controller (`c310000.mttcan`) but
   STOPPED — DOWN, no bitrate set, no control stack. Hardware path exists;
