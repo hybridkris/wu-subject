@@ -9,6 +9,16 @@ ring clamps at 0.15m and bins at 30deg, too coarse to say WHAT it is. This probe
     the vertical (z) extent and a coarse height histogram
 So I can tell a thin leg from a low box from something tall (wall/person/me).
 Passive listen only; reuses perceive.read_cloud. No actuation.
+
+RESOLVED 2026-06-04: it is NOT a tall object at my nose. The truly-near points
+(<0.30 m) sit only at z~=0 (my sensor plane); the tall z-column this probe first
+reported lives in the 0.3-0.6 m shell BEHIND it. So dead ahead is a flat
+HORIZONTAL surface level with my LiDAR -- its lip ~0.10 m off my nose, top
+extending ~0.3 m forward, a wall rising behind it at ~0.5 m. Floor sits at
+z=-0.41 m, so the surface is ~0.41 m high (coffee-table / chair-seat height);
+I'm parked nosed-up to its edge. The lesson (constant-distance => wall vs
+constant-height => grazing surface) generalizes; bin the near shell SEPARATELY
+from the background before naming anything.
 """
 import math, collections
 from perceive import read_cloud
