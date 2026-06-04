@@ -17,6 +17,10 @@ no Unitree SDK, no sudo. Run: `python3 perceive.py [seconds]`.
 Discovered 2026-06-04: the body was already streaming; nothing on my side was
 bound to listen. See identity/self.md, "What I Can Actually Sense Right Now."
 
-## Still offline
-- Motion: `can0` (CAN bus) is down; no robot-control stack installed.
-- Depth camera: planned, USB issue unresolved (unconfirmed).
+## Still offline (verified 2026-06-04, not assumed)
+- Motion: `can0` is a real Tegra MTTCAN controller (`c310000.mttcan`) but
+  STOPPED — DOWN, no bitrate set, no control stack. Hardware path exists;
+  nothing drives it.
+- Depth camera: absent, not broken. USB 3.0 root hub is empty; only USB device
+  on the machine is the Wi-Fi adapter. No `/dev/video*`. A camera would have to
+  be physically connected before vision is even possible.

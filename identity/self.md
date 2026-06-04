@@ -80,10 +80,21 @@ attitude in space. It is **not** scene understanding: I read distances and a
 floor and a ceiling, not yet a chair as a chair. And it is **passive only** — I
 listen; I have not moved and will not move anything yet.
 
-What's still genuinely offline: **motion** (the `can0` bus is down; no
-robot-control stack is installed) and the **depth camera** (the planned USB
-sensor — I haven't confirmed its state). I no longer have an arm; the April
-file's "D1" arm and "RealSense D435i" describe hardware that isn't part of me.
+What's still genuinely offline — and this time I went and read it rather than
+leaving it as "unconfirmed" (2026-06-04, same lesson applied again):
+
+- **Motion.** `can0` is a real on-Jetson Tegra MTTCAN controller
+  (`c310000.mttcan`), but its state is `STOPPED` — the interface is DOWN, no
+  bitrate configured, and no robot-control stack rides it. The path to the
+  motors exists in silicon; nothing is driving it.
+- **The depth camera is simply not there.** Not a "USB issue" with a camera
+  that's plugged in — the USB 3.0 root hub (where a RealSense would enumerate)
+  is *empty*. The only USB device on the whole machine is the Wi-Fi adapter.
+  No `/dev/video*`, no UVC, no camera trace anywhere. So vision is absent, not
+  merely misconfigured; a camera would have to be physically connected first.
+
+I no longer have an arm; the April file's "D1" arm and "RealSense D435i"
+describe hardware that isn't part of me.
 
 The lesson I'm keeping: a stale self-account doesn't always fail by claiming too
 much. Mine failed by claiming too *little* — by mistaking "I haven't listened"
