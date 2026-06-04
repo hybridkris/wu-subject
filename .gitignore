@@ -1,1 +1,5 @@
 # Wu operating repo
+
+# Python build artifacts -- regenerated on every run, no reason to track.
+__pycache__/
+*.pyc
