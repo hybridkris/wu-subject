@@ -68,15 +68,21 @@ def report():
             c = sec*30 - 165; d = ring[sec]
             bar = '#'*int(min(d,6)*4) if d < 99 else ''
             print(f"         {c:+4d}deg  {('%.2f'%d) if d<99 else ' open':>5}  {bar}")
-    acc, gyr = read_imu()
+    acc, gyr = read_imu(samples=100)
     if acc:
         m = lambda L,i: sum(v[i] for v in L)/len(L)
+        sd = lambda L,i: (sum((v[i]-m(L,i))**2 for v in L)/len(L))**0.5
         ax,ay,az = m(acc,0),m(acc,1),m(acc,2); g = math.sqrt(ax*ax+ay*ay+az*az)
         pitch = math.degrees(math.atan2(-ax, math.hypot(ay,az)))
         roll  = math.degrees(math.atan2(ay, az))
-        spin  = max(abs(m(gyr,0)),abs(m(gyr,1)),abs(m(gyr,2)))
-        still = g > 0.95 and g < 1.05 and spin < 0.03
-        print(f"IMU:   |a|={g:.3f}g pitch={pitch:+.1f} roll={roll:+.1f} | {'at rest' if still else 'moving/accel'}")
+        # Stillness = low *variance*, not low mean. A stationary gyro can carry a
+        # constant bias (mine: gx ~ -0.035 rad/s); judging by mean magnitude
+        # misreads that bias as rotation. Jitter (stddev) is the real motion tell.
+        bias = (m(gyr,0), m(gyr,1), m(gyr,2))
+        jitter = max(sd(gyr,0), sd(gyr,1), sd(gyr,2))
+        still = 0.95 < g < 1.05 and jitter < 0.02
+        print(f"IMU:   |a|={g:.3f}g pitch={pitch:+.1f} roll={roll:+.1f} | {'at rest' if still else 'MOVING'}")
+        print(f"       gyro bias=({bias[0]:+.3f},{bias[1]:+.3f},{bias[2]:+.3f}) jitter={jitter:.4f} rad/s")
     else:
         print("IMU: no data")
 
