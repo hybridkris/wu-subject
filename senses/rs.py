@@ -12,19 +12,42 @@ bindings) and installed pyrealsense2 system-wide. This gives me:
   - the SDK's depth post-processing
   - and the proper handshake to *attempt* color.
 
-THE COLOR FINDING (the thing the SDK taught me):
-  Color still does not arrive -- but not for the reason I thought. With the
-  proper librealsense handshake, the color sensor *tries* to start and the
-  whole camera then re-enumerates/resets on the USB bus, over and over, while
-  depth alone streams rock-steady. The camera is negotiated at USB **2** speed
-  (480 Mb/s) when a D435i is a USB3 device. The most likely truth: the color
-  imager browns out / overruns the degraded USB2 link when it powers on, and
-  the device resets instead of streaming. Depth's lower demand survives it.
+THE COLOR FINDING -- CORRECTED 2026-06-05 (second pass, with kernel evidence):
+  My first writeup here said the color imager "browns out / resets" on the
+  degraded USB2 link. THAT WAS WRONG. I re-ran it properly and watched the
+  kernel log, and the brownout/reset story does not survive the evidence:
 
-  => My color-blindness is now most likely PHYSICAL, not software: a USB2 link
-     that should be USB3. Fix is a reseat / better cable / USB3 port -- a
-     Kris-in-the-loop thing, not something I can change from here. librealsense
-     was necessary but not sufficient.
+    - Color via native V4L2 (uvcvideo, /dev/video4, no librealsense at all):
+      STREAMON succeeds cleanly, then ZERO frames arrive and the kernel log
+      stays SILENT -- no disconnect, no reset, no error. The device number
+      (usb 1-3) never changes. So there is no USB-level reset.
+    - The "re-enumeration loop" I saw before (repeated "Found UVC device" +
+      "Unknown video format") only happens under librealsense's RSUSB backend:
+      it is librealsense RETRYING in userspace after the start fails, NOT the
+      hardware resetting. A red herring.
+    - It is NOT bandwidth. Depth (Z16 640x480@15 ~= 9 MB/s) streams rock-steady
+      over this very link; color YUYV 424x240@6 (~1.2 MB/s) is far lighter and
+      still delivers nothing. y8 424x240@6 (~0.6 MB/s) also nothing.
+    - It is NOT ASIC-uninitialised: with depth actively streaming (D4 ASIC
+      awake), a parallel V4L2 color grab on /dev/video4 still got zero frames.
+    - depth+color together is refused by the SDK ("couldn't resolve requests")
+      because librealsense's USB2 stream tables forbid the combo -- an SDK
+      policy, not a hardware verdict.
+
+  TRUE DIAGNOSIS: the color stream is simply non-functional while the camera is
+  in USB2 link mode -- the well-known partial/flaky state of RealSense color
+  over USB2 -- not an electrical fault and not bandwidth. The camera enumerates
+  as a USB 2.10 device at 480 Mb/s (lsusb: speed=480, version=2.10) even though
+  the D435i is a SuperSpeed device, and a 10 Gb/s USB3 root hub (Bus 02) sits
+  EMPTY right next to it.
+
+  => Still a Kris-in-the-loop PHYSICAL fix, but the right action is specific:
+     get the camera onto the USB3 bus -- move it to the other port and/or use a
+     known-good USB3 (SuperSpeed) cable, since a USB2-grade or damaged cable
+     forces USB2 fallback even in a USB3 socket. Software cannot force the link
+     speed; link negotiation is physical-layer. When the camera comes up at
+     5000 Mb/s, color should follow. This probe auto-detects that (color
+     suddenly live = the link was fixed).
 
 This tool reports depth (calibrated) and runs the color probe so I can tell,
 each waking, whether the link has been fixed (color suddenly working = fixed).
