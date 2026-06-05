@@ -53,12 +53,21 @@ def sector_thresh(d):
 
 
 SUBCAPS = 3   # sub-captures whose per-sector median makes one snapshot transient-robust
+FINE_BINS = 72   # 5deg angular bins, saved alongside the 12 coarse sectors. The
+# coarse ring is what the trusted diff() reads; this finer ring is carried purely
+# so a LATER waking can recover a between-wake yaw at 5deg instead of 30deg (the
+# coarse circular-shift only resolves turns to the nearest 30deg, which is why a
+# small or off-grid turn keeps reading "inconclusive"). Additive: never consumed
+# by diff(), only by fine_yaw() when BOTH snapshots happen to carry it.
+FINE_STEP = 360 // FINE_BINS
 
 
 def _one_ring(secs):
-    """One sub-capture: 3rd-pctl distance per sector + floor/ceiling extremes."""
+    """One sub-capture: 3rd-pctl distance per coarse sector AND per fine bin,
+    plus floor/ceiling extremes."""
     pts = read_cloud(secs)
     ring = collections.defaultdict(list)
+    fine = collections.defaultdict(list)
     floor, ceil = 0.0, 0.0
     for x, y, z in pts:
         floor = min(floor, z); ceil = max(ceil, z)
@@ -67,13 +76,18 @@ def _one_ring(secs):
         d = math.hypot(x, y)
         if d < 0.05:
             continue
-        sec = int((math.degrees(math.atan2(y, x)) + 180) // 30)
-        ring[sec].append(d)
+        ang = math.degrees(math.atan2(y, x)) + 180
+        ring[int(ang // 30)].append(d)
+        fine[int(ang // FINE_STEP)].append(d)
     secs_out = {}
     for sec in range(12):
         ds = sorted(ring.get(sec, []))
         secs_out[sec] = ds[int(PCTL * len(ds))] if len(ds) >= MIN_PTS else None
-    return secs_out, floor, ceil, len(pts)
+    fine_out = {}
+    for b in range(FINE_BINS):
+        ds = sorted(fine.get(b, []))
+        fine_out[b] = ds[int(PCTL * len(ds))] if len(ds) >= MIN_PTS else None
+    return secs_out, fine_out, floor, ceil, len(pts)
 
 
 def capture():
@@ -83,15 +97,19 @@ def capture():
     # use the per-sector MEDIAN: a transient present in a minority of windows is
     # rejected, while a genuine, persistent rearrangement survives in all of them.
     sub = max(SECONDS / SUBCAPS, 1.0)
-    rings, floors, ceils, npts = [], [], [], 0
+    rings, fines, floors, ceils, npts = [], [], [], [], 0
     for _ in range(SUBCAPS):
-        r, fl, ce, n = _one_ring(sub)
-        rings.append(r); floors.append(fl); ceils.append(ce); npts += n
+        r, fr, fl, ce, n = _one_ring(sub)
+        rings.append(r); fines.append(fr); floors.append(fl); ceils.append(ce); npts += n
     sectors = {}
     for sec in range(12):
         vals = sorted(r[sec] for r in rings if r[sec] is not None)
         # need a majority of windows to see the sector before trusting it
         sectors[sec] = round(vals[len(vals) // 2], 2) if len(vals) * 2 > SUBCAPS else None
+    fine = []
+    for b in range(FINE_BINS):
+        vals = sorted(fr[b] for fr in fines if fr[b] is not None)
+        fine.append(round(vals[len(vals) // 2], 2) if len(vals) * 2 > SUBCAPS else None)
     floor, ceil = min(floors), max(ceils)   # extremes are real surfaces, not noise
     acc, gyr = read_imu(samples=100)
     pose = None
@@ -104,7 +122,7 @@ def capture():
         "time": datetime.datetime.now().isoformat(timespec="seconds"),
         "seconds": SECONDS, "n_points": npts,
         "floor": round(floor, 2), "ceiling": round(ceil, 2),
-        "sectors": sectors, "pose": pose,
+        "sectors": sectors, "fine": fine, "pose": pose,
     }
 
 
@@ -178,6 +196,46 @@ def motion_hypothesis(prev, cur):
         print(f"distances NOT conserved (drift {dist_drift:.2f}m); no rotation explains "
               f"the ring (best {best_err:.2f}m at shift {best_k}). I was likely RELOCATED, "
               f"or the room itself rearranged -- this is real spatial change, not just my heading.")
+    # Sharpen with the fine ring when both snapshots have one (purely additive).
+    fine_yaw(prev, cur)
+
+
+def fine_yaw(prev, cur):
+    """Sharpen the yaw estimate to FINE_STEP deg, when both snapshots carry the
+    fine ring. Same logic as the coarse circular-shift in motion_hypothesis, just
+    on 72 bins instead of 12, so a turn that the coarse ring could only place to
+    +/-30deg (or miss as "inconclusive") gets pinned to ~5deg. Silent unless it
+    finds a clean, decisive minimum -- a finer ring also has finer ambiguity, so I
+    only speak when the best shift clearly beats both unshifted and runner-up.
+    Older snapshots predating this field simply skip it."""
+    fo, fn = prev.get("fine"), cur.get("fine")
+    if not fo or not fn or len(fo) != len(fn):
+        return
+    N = len(fo)
+    scores = []
+    for k in range(N):
+        pairs = [(fn[i], fo[(i - k) % N]) for i in range(N)
+                 if fn[i] is not None and fo[(i - k) % N] is not None]
+        if len(pairs) < N // 2:    # need half the bins overlapping to judge a shift
+            continue
+        err = sum(abs(a - b) for a, b in pairs) / len(pairs)
+        scores.append((err, k))
+    if len(scores) < 2:
+        return
+    scores.sort()
+    best_err, best_k = scores[0]
+    zero_err = next((e for e, k in scores if k == 0), None)
+    second_err = scores[1][0]
+    s = ((best_k + N // 2) % N) - N // 2      # signed shift in [-N/2, N/2)
+    yaw = -s * FINE_STEP                       # +deg = left/CCW, as in coarse
+    decisive = (best_k != 0 and zero_err is not None
+                and best_err < 0.7 * zero_err and best_err < second_err - 0.02)
+    if not decisive:
+        return
+    side = "left/CCW" if yaw > 0 else "right/CW"
+    print(f"   fine yaw: ~{abs(yaw)}deg to my {side} "
+          f"(72-bin shift {best_k}, fit {best_err:.2f}m vs {zero_err:.2f}m unshifted) "
+          f"-- {FINE_STEP}deg resolution, sharper than the coarse estimate above.")
 
 
 def diff(prev, cur):
