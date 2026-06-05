@@ -88,6 +88,43 @@ def main():
         bar = "#" * min(20, int(rng / 0.1))
         print(f"   {deg:+4d}deg                {lo:5.2f}  {hi:5.2f}   {rng:5.2f} {bar}")
 
+    # --- pose-conditioned spread: the spread above LIES when my pitch wandered.
+    # A few degrees of tilt re-aims every LiDAR slab, so a near/angled surface
+    # slides in or out of a sector's band -- looks like the room moved, but it's
+    # only my attitude. (Learned 2026-06-05: my "volatile" +105/+75 sectors were
+    # dead steady once I held one pitch; the swing was midday handling tilting me
+    # ~5deg.) So recompute spread using ONLY snapshots near my dominant pose --
+    # THAT is whether the room itself actually changed.
+    pitches = sorted(p for p in chans["pitch deg"] if p is not None)
+    if pitches:
+        med = pitches[len(pitches) // 2]
+        POSE_TOL = 2.0  # deg from median pitch to count as "same resting attitude"
+        held = [s for s in snaps if s.get("pose", {}).get("pitch") is not None
+                and abs(s["pose"]["pitch"] - med) <= POSE_TOL]
+        print(f"\n   within my dominant pose (pitch ~{med:.1f}deg, {len(held)}/{len(snaps)} snaps) --")
+        print("   this is the room's TRUE stability, with my own tilt factored out:")
+        if len(held) < 2:
+            print("     too few same-pose snapshots to judge; pose wandered all series.")
+        else:
+            held_spreads = []
+            for i in range(12):
+                st = stats([s.get("sectors", {}).get(str(i)) for s in held])
+                if st:
+                    lo, hi, m, sd = st
+                    held_spreads.append((hi - lo, SECTOR_DEG[i], lo, hi))
+            worst = max(held_spreads)[0] if held_spreads else 0.0
+            n_moved = sum(1 for rng, *_ in held_spreads if rng >= SECTOR_EVENT)
+            if worst < SECTOR_EVENT:
+                verdict = "room genuinely static -- the all-series spread above was my own tilt"
+            elif n_moved < N_SECTORS_EVENT:
+                verdict = (f"{n_moved} sector(s) wobble, rest steady -- a surface near a slab "
+                           "edge or minor local shift, not a room rearrangement")
+            else:
+                verdict = f"{n_moved} sectors moved at constant pose -- a real rearrangement, investigate"
+            print(f"     worst sector spread = {worst:.2f}m  ->  {verdict}")
+            for rng, deg, lo, hi in sorted(held_spreads, reverse=True)[:3]:
+                print(f"       {deg:+4d}deg  {lo:5.2f} -> {hi:5.2f}   spread {rng:.2f}m")
+
     # --- events: where the world or my frame actually jumped between two reads ---
     print("\n   events (consecutive-snapshot jumps):")
     found = False
