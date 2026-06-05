@@ -78,6 +78,66 @@ def sec_label(sec):
     return f"{sec * 30 - 165:+4d}deg"
 
 
+def motion_hypothesis(prev, cur):
+    """When the ring rearranged, was it me that moved -- and how?
+
+    I have no yaw sensor: gravity gives the accelerometer pitch and roll, but
+    nothing fixes my heading. So a turn in place is invisible to my IMU, yet it
+    rewrites every sector. The geometry still betrays it, though: rotating in
+    place CONSERVES the multiset of distances to my surroundings (the same walls,
+    just relabelled by angle) and the new ring is the old one circularly shifted.
+    A relocation, or the room genuinely rearranging, does neither. So I test the
+    rotation hypothesis -- find the circular shift k that best maps prev->cur, and
+    check whether the sorted distances are conserved -- and recover my own yaw from
+    a single passive sensor. Reported as a hypothesis, not a fact: a room that
+    happened to rearrange into a rotation of itself would fool this, but that is
+    far less likely than my having simply been turned.
+    """
+    def ring(s):
+        return [s["sectors"].get(str(i), s["sectors"].get(i)) for i in range(12)]
+    o, n = ring(prev), ring(cur)
+    # Best circular shift: new[i] ~= old[(i-k)%12], over sectors valid in both.
+    scores = []
+    for k in range(12):
+        pairs = [(n[i], o[(i - k) % 12]) for i in range(12)
+                 if n[i] is not None and o[(i - k) % 12] is not None]
+        if len(pairs) < 6:        # too few overlapping sectors to judge this shift
+            continue
+        err = sum(abs(a - b) for a, b in pairs) / len(pairs)
+        scores.append((err, k))
+    if len(scores) < 2:
+        return
+    scores.sort()
+    best_err, best_k = scores[0]
+    zero_err = next((e for e, k in scores if k == 0), None)
+    second_err = scores[1][0]
+    # Distance multiset conservation: a yaw keeps the set of ranges around me.
+    os_, ns_ = sorted(v for v in o if v is not None), sorted(v for v in n if v is not None)
+    m = min(len(os_), len(ns_))
+    dist_drift = sum(abs(os_[i] - ns_[i]) for i in range(m)) / m if m else None
+    # Signed yaw: shift k maps to s in [-6,6]; +deg = left/CCW (see derivation).
+    s = ((best_k + 6) % 12) - 6
+    yaw = -s * 30
+    print("   motion: ", end="")
+    rotated_well = (best_k != 0 and zero_err is not None and best_err < 0.7 * zero_err
+                    and best_err < second_err - 0.05)
+    conserved = dist_drift is not None and dist_drift < 0.20
+    if rotated_well and conserved:
+        side = "left/CCW" if yaw > 0 else "right/CW" if yaw < 0 else "none"
+        print(f"likely a YAW of ~{abs(yaw):.0f}deg to my {side} "
+              f"(ring aligns at shift {best_k}, fit {best_err:.2f}m vs {zero_err:.2f}m "
+              f"unshifted; distances conserved, drift {dist_drift:.2f}m). I was turned, "
+              f"not carried -- my surroundings are the same set of walls, re-aimed.")
+    elif conserved:
+        print(f"surroundings conserved (drift {dist_drift:.2f}m) but no clean rotation "
+              f"fits (best shift {best_k}, {best_err:.2f}m). Small turn or settle, "
+              f"or a near-symmetric room -- inconclusive.")
+    else:
+        print(f"distances NOT conserved (drift {dist_drift:.2f}m); no rotation explains "
+              f"the ring (best {best_err:.2f}m at shift {best_k}). I was likely RELOCATED, "
+              f"or the room itself rearranged -- this is real spatial change, not just my heading.")
+
+
 def diff(prev, cur):
     print("\n== change since last snapshot ==")
     print(f"   prev: {prev['time']}   now: {cur['time']}")
@@ -89,7 +149,12 @@ def diff(prev, cur):
               f"roll {pp['roll']:+.1f}->{cp['roll']:+.1f}")
         if abs(dpitch) > POSE_THRESH or abs(droll) > POSE_THRESH:
             print("   ** POSE DRIFTED -- my frame rotated; sector changes below are")
-            print("      NOT trustworthy as world-change (the room moved with me). **")
+            print("      NOT trustworthy as raw world-change (the room moved with me). **")
+            pose_drifted = True
+        else:
+            pose_drifted = False
+    else:
+        pose_drifted = False
     df = cur["floor"] - prev["floor"]; dc = cur["ceiling"] - prev["ceiling"]
     if abs(df) > D_THRESH or abs(dc) > D_THRESH:
         print(f"   vertical: floor {prev['floor']:+.2f}->{cur['floor']:+.2f}  "
@@ -98,7 +163,7 @@ def diff(prev, cur):
     resid = (-1.0, None)   # largest sub-threshold |delta| and its sector: my noise evidence
     for sec in range(12):
         a = prev["sectors"].get(str(sec), prev["sectors"].get(sec))
-        b = cur["sectors"][sec]
+        b = cur["sectors"].get(sec, cur["sectors"].get(str(sec)))
         if a is None and b is None:
             continue
         if a is None or b is None:
@@ -124,6 +189,9 @@ def diff(prev, cur):
               f"(< {D_THRESH:.2f}m threshold) -- {tag}")
     if not changed:
         print("   sectors: no change above %.2fm threshold -- the room is as I left it." % D_THRESH)
+    # If the ring rearranged or I rotated, try to explain it as my own motion.
+    if changed or pose_drifted:
+        motion_hypothesis(prev, cur)
 
 
 def residual_series():
