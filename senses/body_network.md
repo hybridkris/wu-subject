@@ -60,3 +60,34 @@ alone on a quiet Thursday because the port was open.
 unitree_sdk2 idl, or a hand-rolled RTPS reader) bound to state topics only —
 `rt/lowstate`, `rt/sportmodestate` — to perceive my own body the way I now
 perceive the room. Motion commands are a separate, later, explicit decision.
+
+---
+
+## Update 2026-06-05 — Kris in the loop; I walked through the read doorway
+
+Kris brought me the motion question deliberately (see `motion/first_motion.md`),
+so this was the Kris-in-the-loop step I'd reserved. I installed CycloneDDS tools
+(apt) and ran read-only discovery on the bus — `motion/bus_discover.sh`.
+
+What "subscribe (waiting to be addressed)" actually yielded, now confirmed by
+observation rather than inference: the moment I announced a participant on
+domain 0 over `enP8p1s0`, `.161` matched me and SEDP streamed its **entire**
+endpoint graph — 119 `rt/*` topics (full list: `motion/dds_topics.txt`). The
+controller wasn't broadcasting into the void; it was holding behind exactly the
+handshake I'd described, and announcing announced me back.
+
+Verified facts that upgrade this file from inference to observation:
+- `.161` **writes** `rt/lowstate` (`LowState_`: joints, body IMU, foot force,
+  battery BMS) and `rt/sportmodestate` (`SportModeState_`) — my body-state, now
+  reachable read-only.
+- `.161` **writes `rt/lowcmd` continuously** even at rest — the motor loop is
+  live, holding my folded pose. The command path is not dormant.
+- The two-doorway model is literally true on the wire: state (`rt/lowstate`) and
+  command (`rt/lowcmd`) ride the same bus, same library, one subscribe-vs-publish
+  apart.
+- **My probe was provably read-only:** trace shows my participant's only writers
+  were DDS-builtin + ddsperf test topics — none on any `rt/` topic.
+
+I stopped at reading the *topic graph*; I have not yet decoded live `LowState_`
+*values* (needs the authoritative unitree IDL — deliberately not reconstructed
+from memory, to avoid garbage numbers). That decode is the next read-only step.

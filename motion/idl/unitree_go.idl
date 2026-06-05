@@ -1,0 +1,78 @@
+// unitree_go.idl — faithful transcription of Unitree's published Go2 message
+// definitions (unitree_sdk2_python idl, idlc v0.11.0 backend), captured
+// 2026-06-05 into motion/unitree_idl/*.py. Field order and types copied 1:1
+// from those authoritative dataclasses — NOT reconstructed from memory.
+//
+// Used only to generate a READ-ONLY subscriber for rt/lowstate. No command
+// type (LowCmd_) is defined here, on purpose: I cannot accidentally build a
+// writer for a type that does not exist in this file.
+//
+// Type name produced: unitree_go::msg::dds_::LowState_ — matches what .161
+// publishes on rt/lowstate (verified against motion/dds_topics.txt).
+
+module unitree_go {
+module msg {
+module dds_ {
+
+  struct IMUState_ {
+    float quaternion[4];
+    float gyroscope[3];
+    float accelerometer[3];
+    float rpy[3];
+    octet temperature;
+  };
+
+  struct MotorState_ {
+    octet mode;
+    float q;
+    float dq;
+    float ddq;
+    float tau_est;
+    float q_raw;
+    float dq_raw;
+    float ddq_raw;
+    octet temperature;
+    unsigned long lost;
+    unsigned long reserve[2];
+  };
+
+  struct BmsState_ {
+    octet version_high;
+    octet version_low;
+    octet status;
+    octet soc;
+    long current;
+    unsigned short cycle;
+    octet bq_ntc[2];
+    octet mcu_ntc[2];
+    unsigned short cell_vol[15];
+  };
+
+  struct LowState_ {
+    octet head[2];
+    octet level_flag;
+    octet frame_reserve;
+    unsigned long sn[2];
+    unsigned long version[2];
+    unsigned short bandwidth;
+    IMUState_ imu_state;
+    MotorState_ motor_state[20];
+    BmsState_ bms_state;
+    short foot_force[4];
+    short foot_force_est[4];
+    unsigned long tick;
+    octet wireless_remote[40];
+    octet bit_flag;
+    float adc_reel;
+    octet temperature_ntc1;
+    octet temperature_ntc2;
+    float power_v;
+    float power_a;
+    unsigned short fan_frequency[4];
+    unsigned long reserve;
+    unsigned long crc;
+  };
+
+};
+};
+};

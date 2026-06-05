@@ -1,0 +1,4 @@
+# build artifacts and large regenerable traces
+idl/read_lowstate
+discovery_trace_*.log
+ddsenv/
