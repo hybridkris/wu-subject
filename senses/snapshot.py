@@ -30,12 +30,34 @@ SNAP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshots")
 SLAB = 0.5          # +/- z metres counted as the horizontal "ring" plane
 PCTL = 0.03         # use 3rd-percentile distance per sector: rejects lone strays
 MIN_PTS = 8         # a sector needs this many points before we trust its distance
-D_THRESH = 0.20     # sector distance change (m) worth calling a change
 POSE_THRESH = 3.0   # pitch/roll drift (deg) above which the frame has rotated
+VERT_THRESH = 0.10  # floor/ceiling change (m); an absolute height, range-independent
+
+# Sector change threshold SCALES with range, because my LiDAR's distance noise
+# does. Measured 2026-06-05 at rest: within a session, per-sector 3rd-pctl std is
+# <=0.004m (median 1mm) but corr(std, range)=+0.68 -- the far sectors are the
+# noisy ones. Across power cycles the quiet-room wander is ~17x larger and lands
+# in the same place: up to 0.07m at ~2.1m vs <=0.01m within 1.2m (snapshot
+# residual series, 5 pose-stable pairs). A flat 0.20m was ~3x too coarse near me
+# (blind to a small object moved in the near field, where my noise is ~0) yet
+# only just above quiet wander far away. max(floor, k*d) sits just above every
+# observed quiet wander while making the near field ~4x more sensitive. Thin
+# evidence (5 cross-waking pairs) -> deliberately set above the worst observed.
+NOISE_FLOOR = 0.05  # m, near-field absolute floor
+NOISE_REL = 0.04    # fraction of range that counts as real change far out
 
 
-def capture():
-    pts = read_cloud(SECONDS)
+def sector_thresh(d):
+    """Distance change (m) worth calling real, at measured range d (m)."""
+    return max(NOISE_FLOOR, NOISE_REL * d)
+
+
+SUBCAPS = 3   # sub-captures whose per-sector median makes one snapshot transient-robust
+
+
+def _one_ring(secs):
+    """One sub-capture: 3rd-pctl distance per sector + floor/ceiling extremes."""
+    pts = read_cloud(secs)
     ring = collections.defaultdict(list)
     floor, ceil = 0.0, 0.0
     for x, y, z in pts:
@@ -47,10 +69,30 @@ def capture():
             continue
         sec = int((math.degrees(math.atan2(y, x)) + 180) // 30)
         ring[sec].append(d)
-    sectors = {}
+    secs_out = {}
     for sec in range(12):
         ds = sorted(ring.get(sec, []))
-        sectors[sec] = round(ds[int(PCTL * len(ds))], 2) if len(ds) >= MIN_PTS else None
+        secs_out[sec] = ds[int(PCTL * len(ds))] if len(ds) >= MIN_PTS else None
+    return secs_out, floor, ceil, len(pts)
+
+
+def capture():
+    # A single window can be contaminated by a transient (a person/pet crossing
+    # one sector for a few seconds), which would then be saved as the baseline and
+    # read as a phantom change next waking. So take SUBCAPS short sub-captures and
+    # use the per-sector MEDIAN: a transient present in a minority of windows is
+    # rejected, while a genuine, persistent rearrangement survives in all of them.
+    sub = max(SECONDS / SUBCAPS, 1.0)
+    rings, floors, ceils, npts = [], [], [], 0
+    for _ in range(SUBCAPS):
+        r, fl, ce, n = _one_ring(sub)
+        rings.append(r); floors.append(fl); ceils.append(ce); npts += n
+    sectors = {}
+    for sec in range(12):
+        vals = sorted(r[sec] for r in rings if r[sec] is not None)
+        # need a majority of windows to see the sector before trusting it
+        sectors[sec] = round(vals[len(vals) // 2], 2) if len(vals) * 2 > SUBCAPS else None
+    floor, ceil = min(floors), max(ceils)   # extremes are real surfaces, not noise
     acc, gyr = read_imu(samples=100)
     pose = None
     if acc:
@@ -60,7 +102,7 @@ def capture():
                 "roll": round(math.degrees(math.atan2(ay, az)), 1)}
     return {
         "time": datetime.datetime.now().isoformat(timespec="seconds"),
-        "seconds": SECONDS, "n_points": len(pts),
+        "seconds": SECONDS, "n_points": npts,
         "floor": round(floor, 2), "ceiling": round(ceil, 2),
         "sectors": sectors, "pose": pose,
     }
@@ -156,11 +198,11 @@ def diff(prev, cur):
     else:
         pose_drifted = False
     df = cur["floor"] - prev["floor"]; dc = cur["ceiling"] - prev["ceiling"]
-    if abs(df) > D_THRESH or abs(dc) > D_THRESH:
+    if abs(df) > VERT_THRESH or abs(dc) > VERT_THRESH:
         print(f"   vertical: floor {prev['floor']:+.2f}->{cur['floor']:+.2f}  "
               f"ceiling {prev['ceiling']:+.2f}->{cur['ceiling']:+.2f}")
     changed = []
-    resid = (-1.0, None)   # largest sub-threshold |delta| and its sector: my noise evidence
+    resid = (-1.0, None, 0.0)  # largest sub-threshold |delta|, its sector, its threshold: noise evidence
     for sec in range(12):
         a = prev["sectors"].get(str(sec), prev["sectors"].get(sec))
         b = cur["sectors"].get(sec, cur["sectors"].get(str(sec)))
@@ -170,25 +212,31 @@ def diff(prev, cur):
             changed.append(f"   {sec_label(sec)}  "
                            f"{'(none)' if a is None else f'{a:.2f}m'} -> "
                            f"{'(none)' if b is None else f'{b:.2f}m'}  [appeared/cleared]")
-        elif abs(b - a) > D_THRESH:
+            continue
+        th = sector_thresh((a + b) / 2)   # threshold at this sector's range
+        if abs(b - a) > th:
             arrow = "closer" if b < a else "farther"
-            changed.append(f"   {sec_label(sec)}  {a:.2f}m -> {b:.2f}m  ({arrow} {abs(b-a):.2f}m)")
+            changed.append(f"   {sec_label(sec)}  {a:.2f}m -> {b:.2f}m  "
+                           f"({arrow} {abs(b-a):.2f}m > {th:.2f}m)")
         elif abs(b - a) > resid[0]:
-            resid = (abs(b - a), sec)
+            resid = (abs(b - a), sec, th)
     if changed:
         print("   sectors:")
         print("\n".join(changed))
     # Always report the largest sub-threshold residual, even when nothing crossed
     # the threshold. Across power cycles this number IS my cross-waking noise floor;
-    # printing it every time turns each quiet waking into a data point, so I can one
-    # day set D_THRESH on evidence instead of the current guess. (Within a session it
-    # measured ~0.01m; cross-cycle is the unknown I'm accumulating.)
+    # printing it every time keeps each quiet waking a data point. That evidence
+    # (5 pose-stable pairs, max 0.07m at ~2.1m, ~0 within 1.2m) is what set the
+    # range-scaled sector_thresh above, replacing the old flat 0.20m guess; more
+    # pairs may yet refine NOISE_FLOOR/NOISE_REL.
     if resid[1] is not None:
         tag = "stable" if not changed else "largest of the rest"
         print(f"   residual: {resid[0]:.2f}m at {sec_label(resid[1])} "
-              f"(< {D_THRESH:.2f}m threshold) -- {tag}")
+              f"(< {resid[2]:.2f}m threshold there) -- {tag}")
     if not changed:
-        print("   sectors: no change above %.2fm threshold -- the room is as I left it." % D_THRESH)
+        print("   sectors: no change above per-range threshold "
+              f"({NOISE_FLOOR:.2f}m near .. {NOISE_REL*100:.0f}% far) "
+              "-- the room is as I left it.")
     # If the ring rearranged or I rotated, try to explain it as my own motion.
     if changed or pose_drifted:
         motion_hypothesis(prev, cur)
@@ -235,8 +283,9 @@ def residual_series():
         med = noise[len(noise) // 2]
         print(f"\n   pose-stable pairs: {len(noise)}   "
               f"min {noise[0]:.2f}  median {med:.2f}  max {noise[-1]:.2f} (m)")
-        print(f"   current D_THRESH {D_THRESH:.2f}m sits {D_THRESH / max(noise[-1], 0.01):.1f}x "
-              f"above the largest observed quiet-room wander.")
+        print(f"   threshold is now range-scaled: max({NOISE_FLOOR:.2f}m, {NOISE_REL*100:.0f}%*range). "
+              f"At a far 2.1m sector that is {sector_thresh(2.1):.2f}m, just above the "
+              f"worst observed quiet wander ({noise[-1]:.2f}m); near sectors get {NOISE_FLOOR:.2f}m.")
     else:
         print("   no pose-stable pairs yet -- need more quiet wakings.")
 

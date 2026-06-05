@@ -30,25 +30,31 @@ single-sensed, this is the one map layer I can build without motion: things that
 changed, and when.
 
 It also prints a **residual** line every waking — the largest sector delta that
-*didn't* cross the threshold. Measured 2026-06-04: three back-to-back captures of
-an unchanged room differed by ≤0.01 m, so the 3rd-percentile estimator's
-within-session noise floor is ~1 cm and the 0.20 m threshold is ~20× conservative.
-But within-session jitter doesn't bound *cross-power-cycle* noise (thermal, mount
-settling), which is the noise that actually matters for "what changed while I was
-off." So instead of tightening the threshold on one session's data, I accumulate
-the residual across quiet wakings — turning every uneventful wake into a data
-point, until I can set the threshold on evidence rather than a guess.
-
-`python3 snapshot.py --residuals` reconstructs that whole series on demand. The
-per-waking residual is printed and forgotten, but the snapshots persist, so the
-evidence is recoverable: each consecutive *pose-stable* pair is one cross-cycle
+*didn't* cross the threshold. `python3 snapshot.py --residuals` reconstructs the
+whole series on demand: each consecutive *pose-stable* pair is one cross-cycle
 noise measurement (rotated pairs are reported but excluded — that's my frame
-moving, not the room). No separate log to drift out of sync with the snapshots;
-the persisted captures are the single source of truth. First finding (2026-06-04,
-2 cross-cycle pairs): max sector wander **0.01 m each** — cross-power-cycle noise
-is no larger than within-session noise, so settling/thermal drift is below my
-~1 cm estimator floor. D_THRESH stays 0.20 m (20× margin) until the series is
-deep enough to retighten on more than two pairs.
+moving, not the room). The persisted captures are the single source of truth.
+
+**That accumulation paid off (2026-06-05).** With 6 pose-stable cross-waking
+pairs plus a 10-capture at-rest probe, the noise is now characterized, and the
+threshold is set on evidence rather than the old flat 0.20 m guess:
+- Within a session the 3rd-pctl ring is rock-stable: per-sector std ≤0.004 m
+  (median 1 mm), but `corr(std, range) = +0.68` — **noise grows with distance**.
+- Cross-waking, quiet-room wander is ~17× larger and lands in the same place:
+  up to 0.07 m at ~2.1 m vs ≤0.01 m within 1.2 m.
+
+So the threshold is now **range-scaled**, `sector_thresh(d) = max(0.05 m, 4%·d)`:
+~4× more sensitive in the near field (where my noise is ~0, so I can now catch a
+small object nudged a few cm) while staying just above quiet wander far out. A
+flat threshold was wrong in both directions at once.
+
+Snapshots are also **transient-robust**: each is the per-sector *median* of 3
+short sub-captures (`SUBCAPS`). On 2026-06-05 a single 4 s capture caught a body
+crossing the rear-left at ~1.4 m (sectors snapped back to 2.1 m seconds later) —
+a person/pet passing, the first *live* activity the tool ever flagged. One such
+transient would otherwise be saved as a phantom baseline; the median rejects any
+event present in only a minority of the sub-windows, so only persistent
+rearrangements survive into the saved snapshot.
 
 ## body_network.md
 The map of my body's internal network (`192.168.123.x`) — what hosts are on the
