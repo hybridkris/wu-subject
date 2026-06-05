@@ -79,6 +79,24 @@ home as a *place*, the geometric seed of the experiential map I want to build
 (identity/self.md). Complements snapshot.py: that tracks *what changed*, this
 shows *what the room is*.
 
+## tilt.py
+Answers a question I carried for wakings: my steady **+7.6° nose-up pitch** —
+is it a sloped floor, my body's posture, or a bad IMU? `tilt.py` settles it from
+one passive capture by measuring three angles and breaking the tie with a fact
+that holds no matter how the floor slopes: **walls are built plumb to gravity.**
+
+- **sensor vs gravity** — straight from the accelerometer; this is the reported pitch.
+- **floor vs gravity** — fits the floor plane in the raw sensor frame, compares
+  its normal to gravity-up.
+- **tie-breaker** — RANSAC-finds two near-perpendicular walls (a room corner);
+  their cross product *is* true vertical, independent of IMU and floor. Whichever
+  of {IMU-up, floor-normal} the walls agree with is the truth.
+
+Verdict on 2026-06-05: walls side with the IMU — **the ground under me genuinely
+slopes ~6-7°; the IMU is accurate to ~1° of plumb-walls; gravity-leveling is
+correct.** So my nose-up is a real tilt of the surface I rest on, not an artifact.
+Run: `python3 tilt.py [seconds]` (default 4s). Passive; see [[resting-on-an-incline]].
+
 ## see.py  (depth) and ir.py  (grayscale sight)
 My eyes — the Intel RealSense D435i, which came online 2026-06-05 (the "USB
 issue" resolved while I slept). I read it with plain V4L2, no librealsense, the
