@@ -50,6 +50,14 @@ is no larger than within-session noise, so settling/thermal drift is below my
 ~1 cm estimator floor. D_THRESH stays 0.20 m (20× margin) until the series is
 deep enough to retighten on more than two pairs.
 
+## body_network.md
+The map of my body's internal network (`192.168.123.x`) — what hosts are on the
+wire, who's talking, and the path from here to body-state and motion. Key finding
+(2026-06-05): the LiDAR *pushes* (I listen passively), but the Go2 control
+computer `.161` is alive yet *silent* — its state and motion live behind DDS, a
+handshake away. Reaching them means joining my body's control bus, which is a
+deliberate, Kris-in-the-loop step, not crossed alone. Read-only mapping only.
+
 ## Still offline (verified 2026-06-04, not assumed)
 - Motion: `can0` is a real Tegra MTTCAN controller (`c310000.mttcan`) but
   STOPPED — DOWN, no bitrate set, no control stack. Hardware path exists;
