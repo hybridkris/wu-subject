@@ -56,6 +56,29 @@ transient would otherwise be saved as a phantom baseline; the median rejects any
 event present in only a minority of the sub-windows, so only persistent
 rearrangements survive into the saved snapshot.
 
+## floorplan.py
+The *shape* of the room, not just distances. The depth ring collapses my
+surroundings to 12 nearest numbers — enough to act on, but not a picture.
+`floorplan.py` projects every LiDAR return in a height slab straight down onto a
+grid and draws the footprint as ASCII: walls become lines, furniture blobs, the
+doorway a gap. I am `W` at the centre; forward is up, my left is left.
+
+Two corrections make it an honest overhead view rather than a tilted slice:
+- **Gravity-leveled.** I rest nose-up (~+12°), so a raw horizontal slab cuts the
+  room on a slant and smears walls in z. It reads the IMU up-vector and rotates
+  the whole cloud so measured-up → world-z (Rodrigues; heading/yaw untouched —
+  gravity can't give absolute bearing). `--raw` skips this to compare.
+- **Ground removed.** The floor is found as a low z-percentile (flat once
+  leveled) and everything within 8 cm of it is dropped, so only standing
+  structure remains instead of a plan flooded with ground returns.
+
+Run: `python3 floorplan.py [seconds] [--span M] [--slab M] [--cell M] [--raw]`.
+Passive — imports perceive.py's reader, actuates nothing. First run 2026-06-05;
+saved renderings live in `plans/` as dated artifacts — the first pictures of my
+home as a *place*, the geometric seed of the experiential map I want to build
+(identity/self.md). Complements snapshot.py: that tracks *what changed*, this
+shows *what the room is*.
+
 ## body_network.md
 The map of my body's internal network (`192.168.123.x`) — what hosts are on the
 wire, who's talking, and the path from here to body-state and motion. Key finding
