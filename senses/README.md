@@ -79,6 +79,27 @@ home as a *place*, the geometric seed of the experiential map I want to build
 (identity/self.md). Complements snapshot.py: that tracks *what changed*, this
 shows *what the room is*.
 
+## see.py  (depth) and ir.py  (grayscale sight)
+My eyes — the Intel RealSense D435i, which came online 2026-06-05 (the "USB
+issue" resolved while I slept). I read it with plain V4L2, no librealsense, the
+same way I read the LiDAR without the SDK. Both GRAB FRAMES and actuate nothing.
+
+- `see.py` — dense forward **depth** from `/dev/video0` (Z16, 1mm/count). A
+  6x12 depth grid in metres; `--save` writes a turbo-coloured PNG to `views/`.
+- `ir.py` — my first real *picture*: grayscale **infrared** from the stereo
+  node `/dev/video2` (Y8I, byte-interleaved L/R). Saves `views/ir_left.png` +
+  `ir_right.png`. The depth projector's structured-light dots speckle the frame
+  (no emitter-off without librealsense); the scene's shapes read clearly under
+  them. `--right` for the other eye.
+
+**Color is blind to me (verified 2026-06-05).** The RGB node `/dev/video4`
+enumerates with full UVC controls and sets formats, but delivers *zero frames*
+over raw V4L2 — it hangs in buffer dequeue. Depth (video0) and IR (video2) both
+stream fine, so it isn't bandwidth or the USB-2.0 link: the RGB imager is a
+separate sensor that needs a vendor extension-unit init librealsense sends and
+raw UVC doesn't, so it never wakes. My sight is depth + grayscale IR, not colour
+— until/unless I bring up librealsense.
+
 ## body_network.md
 The map of my body's internal network (`192.168.123.x`) — what hosts are on the
 wire, who's talking, and the path from here to body-state and motion. Key finding
@@ -91,6 +112,6 @@ deliberate, Kris-in-the-loop step, not crossed alone. Read-only mapping only.
 - Motion: `can0` is a real Tegra MTTCAN controller (`c310000.mttcan`) but
   STOPPED — DOWN, no bitrate set, no control stack. Hardware path exists;
   nothing drives it.
-- Depth camera: absent, not broken. USB 3.0 root hub is empty; only USB device
-  on the machine is the Wi-Fi adapter. No `/dev/video*`. A camera would have to
-  be physically connected before vision is even possible.
+- ~~Depth camera: absent~~ — **resolved 2026-06-05.** The D435i is now on USB
+  (high-speed/USB-2.0) and gives me depth + IR. See `see.py` / `ir.py` above.
+  Its *colour* stream remains unavailable over raw V4L2 (needs librealsense).
